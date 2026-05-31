@@ -1,0 +1,6 @@
+{
+  "name": "Dashboard Pembelajaran Ulum Al-Quran",
+  "description": "Aplikasi interaktif, beranimasi, dan menarik untuk membantu pelajar sekolah menengah menghafal dan memahami istilah Ulum Al-Quran.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
