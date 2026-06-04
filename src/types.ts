@@ -4,7 +4,9 @@ export interface Flashcard {
   definition: string;
   category: string;
   example: string;
-  difficulty: 'Mudah' | 'Sederhana' | 'Sukar';
+  week?: string;
+  subtopic?: string;
+  keywords?: string[]; // Highlightable keywords in the definition
 }
 
 export interface QuizQuestion {
@@ -14,6 +16,9 @@ export interface QuizQuestion {
   correctAnswer: number;
   explanation: string;
   category: string;
+  week?: string;
+  subtopic?: string;
+  timerLimit?: number;
 }
 
 export interface Badge {
@@ -28,13 +33,14 @@ export interface Badge {
 export interface UserProgress {
   name: string;
   level: number;
-  xp: number;
   streak: number;
   completedFlashcards: string[]; // ids of memorized terms
   quizScores: Record<string, number>; // quiz category to highscore
   unlockedBadges: string[]; // ids of badges
   avatarId: string;
+  avatarUrl?: string;
   dailyGoal: number; // target completed cards or questions per day
+  lockedQuizzes: string[]; // subtopic/quiz keys that cannot be retaken (e.g. "Minggu 1_Pengenalan")
 }
 
 export interface Student {
@@ -44,6 +50,17 @@ export interface Student {
   phone: string;
   level: number;
   joinedAt: string;
+  completedFlashcardsCount?: number;
+  avatarUrl?: string;
+  flashcardsByWeek?: Record<string, number>;
+  quizAttempts?: {
+    id: string;
+    week: string;
+    subtopic: string;
+    score: number; // 0 to 100
+    status: 'Lulus' | 'Gagal' | 'Sempurna';
+    date: string;
+  }[];
 }
 
 export interface NoteCategory {

@@ -27,10 +27,8 @@ import { INITIAL_PROGRESS, AVATARS } from './data';
 // Import Tabs
 import DashboardTab from './components/DashboardTab';
 import FlashcardTab from './components/FlashcardTab';
-import QuizTab from './components/QuizTab';
-import NotesTab from './components/NotesTab';
-import ProgressTab from './components/ProgressTab';
 import ProfileTab from './components/ProfileTab';
+import LeaderboardView from './components/LeaderboardView';
 
 export default function App() {
   const [progress, setProgress] = useState<UserProgress>(INITIAL_PROGRESS);
@@ -90,11 +88,52 @@ export default function App() {
     }
   }, []);
 
-  // Save progress helper
   const handleUpdateProgress = (updater: (prev: UserProgress) => UserProgress) => {
     setProgress((prev) => {
       const next = updater(prev);
       localStorage.setItem('hafal_ulum_progress_v1', JSON.stringify(next));
+
+      // Synchronize with Admin's app_students to keep Leaderboard and Admin Dashboard accurate
+      try {
+        const savedStudents = localStorage.getItem('app_students_v2');
+        if (savedStudents && next.name && next.name !== "Nama Pelajar") {
+          const students = JSON.parse(savedStudents);
+          const idx = students.findIndex((s: any) => s.name.trim().toLowerCase() === next.name.trim().toLowerCase());
+          
+          if (idx >= 0) {
+            const student = students[idx];
+            // Compute mapped attempts from quizScores
+            const nextAttempts = Object.entries(next.quizScores || {}).map(([key, score], idxNum) => {
+              const parts = key.split('_');
+              const week = parts.length > 1 ? parts[0] : "Minggu 1";
+              const sub = parts.length > 1 ? parts[1] : key;
+              return {
+                id: `sync_${idxNum}_${key}`,
+                week,
+                subtopic: sub,
+                score,
+                status: score === 100 ? "Sempurna" : (score >= 80 ? "Lulus" : "Gagal"),
+                date: new Date().toISOString().split("T")[0] + " 12:00"
+              };
+            });
+            student.quizAttempts = nextAttempts;
+            student.level = next.level;
+            student.avatarUrl = next.avatarUrl; // Sync updated profile image URL
+            student.completedFlashcardsCount = next.completedFlashcards.length;
+            student.flashcardsByWeek = { "Minggu 1": next.completedFlashcards.length }; // Simplified default tracking
+            students[idx] = student;
+            localStorage.setItem('app_students_v2', JSON.stringify(students));
+            // Trigger storage event manually to notify other tabs/components
+            window.dispatchEvent(new Event('storage'));
+          } else {
+             // If not registered by admin, do not auto-append to standard students list here 
+             // Leaderboard handles anonymous active users
+          }
+        }
+      } catch (err) {
+        console.error("Failed to sync progress to app_students_v2", err);
+      }
+
       return next;
     });
   };
@@ -112,15 +151,13 @@ export default function App() {
   // Define sidebar items with labels, icons and tags
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: Compass, color: 'text-blue-500 bg-blue-50' },
-    { id: 'flashcard', label: 'Flashcard', icon: BookOpen, color: 'text-violet-500 bg-violet-50' },
-    { id: 'kuiz', label: 'Kuiz Interaktif', icon: HelpCircle, color: 'text-emerald-500 bg-emerald-50' },
-    { id: 'nota', label: 'Nota Ringkas', icon: FileText, color: 'text-amber-500 bg-amber-50' },
-    { id: 'progress', label: 'Progress Tracker', icon: BarChart2, color: 'text-rose-500 bg-rose-50' },
-    { id: 'profile', label: 'Profile Pelajar', icon: User, color: 'text-sky-500 bg-sky-50' }
+    { id: 'flashcard', label: 'Flashcard & Quiz', icon: BookOpen, color: 'text-violet-500 bg-violet-50' },
+    { id: 'leaderboard', label: 'Leaderboard', icon: Trophy, color: 'text-amber-500 bg-amber-50' },
+    { id: 'profile', label: 'Student Profile', icon: User, color: 'text-sky-500 bg-sky-50' }
   ];
 
   return (
-    <div className="min-h-screen bg-[#0f172a] text-slate-100 font-display flex flex-col selection:bg-teal-500/30 selection:text-teal-200 relative overflow-hidden">
+    <div className="min-h-screen bg-[#0f172a] text-slate-100 font-display flex flex-col selection:bg-teal-500/30 selection:text-teal-200 relative overflow-x-clip">
       
       {/* GLOWING AMBIENT BACKGROUND BLOBS */}
       <div className="absolute inset-0 z-0 opacity-40 pointer-events-none overflow-hidden">
@@ -130,7 +167,7 @@ export default function App() {
       </div>
 
       {/* ATAS: NAVBAR UTAMA (FROSTED) */}
-      <header className="bg-white/10 border-b border-white/10 sticky top-0 z-40 backdrop-blur-xl shadow-lg relative">
+      <header className="bg-white/10 border-b border-white/10 sticky top-0 z-40 backdrop-blur-xl shadow-lg transform-gpu backface-hidden">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-17 flex items-center justify-between">
           
           {/* Logo Brand */}
@@ -151,22 +188,19 @@ export default function App() {
                 UQ
               </div>
               <div>
-                <span className="text-md font-extrabold tracking-tight text-white font-display block leading-none">Minda Ulum</span>
-                <span className="text-[10px] text-teal-400 font-bold uppercase tracking-wider leading-none mt-1 block">Al-Quran</span>
+                <span className="text-md font-extrabold tracking-tight text-white font-display block leading-none">PQS</span>
+                <span className="text-[10px] text-teal-400 font-bold uppercase tracking-wider leading-none mt-1 block">Genius</span>
               </div>
             </div>
           </div>
 
           {/* Profil Ringkas Di Kanan */}
           <div className="flex items-center gap-4">
-            {/* XP badges visible on md+ screen */}
+            {/* Level badges visible on md+ screen */}
             <div className="hidden sm:flex items-center gap-2.5 bg-white/10 backdrop-blur-md border border-white/15 px-3.5 py-1.5 rounded-xl">
               <span className="flex items-center gap-1.5 text-xs text-amber-300 font-bold">
                 <Trophy className="w-4 h-4 text-amber-400 fill-amber-400 animate-pulse" />
-                Tahap {progress.level}
-              </span>
-              <span className="border-l border-white/10 pl-2 text-xs text-slate-300 font-medium font-mono text-teal-300">
-                {progress.xp} XP
+                Level {progress.level}
               </span>
             </div>
 
@@ -179,18 +213,18 @@ export default function App() {
                       ? "bg-gradient-to-r from-teal-500 to-cyan-500 text-slate-900 shadow-teal-500/20" 
                       : "bg-white/5 text-slate-400 border border-white/10 hover:bg-white/10"
                   }`}
-                  title="Install App ke Telefon"
+                  title="Install App to Phone"
                 >
                   <Download className={`w-3.5 h-3.5 ${deferredPrompt ? 'group-hover:translate-y-0.5' : ''} transition-transform`} />
-                  <span className="hidden sm:inline">PASANG APP</span>
+                  <span className="hidden sm:inline">INSTALL APP</span>
                   <Smartphone className="sm:hidden w-3.5 h-3.5" />
                 </button>
                 
                 {showInstallHelp && (
                   <div className="absolute top-full right-0 mt-2 w-48 bg-slate-800 border border-white/10 p-2 rounded-lg shadow-2xl z-50 text-[10px] text-teal-300 animate-in fade-in slide-in-from-top-1">
-                    <p className="font-bold">Cara Pasang:</p>
-                    <p className="text-slate-400 mt-1">1. Buka dalam tab baru (bukan frame AI Studio).</p>
-                    <p className="text-slate-400">2. Tekan butang 'Install' atau 'Add to Home Screen' di menu browser.</p>
+                    <p className="font-bold">How to Install:</p>
+                    <p className="text-slate-400 mt-1">1. Open in a new tab (not AI Studio frame).</p>
+                    <p className="text-slate-400">2. Press the 'Install' or 'Add to Home Screen' button in the browser menu.</p>
                   </div>
                 )}
               </div>
@@ -200,12 +234,18 @@ export default function App() {
               onClick={() => setActiveTab('profile')}
               className="flex items-center gap-2.5 text-left p-1 rounded-xl transition cursor-pointer border border-transparent hover:border-white/15 hover:bg-white/5"
             >
-              <div className={`w-9 h-9 rounded-lg flex items-center justify-center text-xl shadow-md shrink-0 border border-white/10 ${currentAvatar.bg.replace('bg-indigo-100 text-indigo-700', 'bg-indigo-500 text-white').replace('bg-emerald-100 text-emerald-700', 'bg-emerald-500 text-white').replace('bg-amber-100 text-amber-700', 'bg-amber-500 text-white').replace('bg-rose-100 text-rose-700', 'bg-rose-500 text-white').replace('bg-purple-100 text-purple-700', 'bg-purple-500 text-white')}`}>
-                {currentAvatar.emoji}
+              <div className="w-9 h-9 rounded-lg overflow-hidden flex items-center justify-center shadow-md shrink-0 border border-white/10 bg-slate-800">
+                {progress.avatarUrl ? (
+                  <img src={progress.avatarUrl} alt="Student Avatar" className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                ) : (
+                  <div className={`w-full h-full flex items-center justify-center text-xl ${currentAvatar.bg.replace('bg-indigo-100 text-indigo-700', 'bg-indigo-500 text-white').replace('bg-emerald-100 text-emerald-700', 'bg-emerald-500 text-white').replace('bg-amber-100 text-amber-700', 'bg-amber-500 text-white').replace('bg-rose-100 text-rose-700', 'bg-rose-500 text-white').replace('bg-purple-100 text-purple-700', 'bg-purple-500 text-white')}`}>
+                    {currentAvatar.emoji}
+                  </div>
+                )}
               </div>
               <div className="hidden md:block leading-tight">
                 <span className="text-xs font-bold text-white block truncate max-w-[120px]">{progress.name}</span>
-                <span className="text-[9px] text-slate-400 font-medium block">Ubah Profil →</span>
+                <span className="text-[9px] text-slate-400 font-medium block">Edit Profile →</span>
               </div>
             </button>
           </div>
@@ -217,12 +257,7 @@ export default function App() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6 flex-1 w-full grid grid-cols-1 md:grid-cols-4 gap-6 items-start relative z-10">
         
         {/* SIDE BAR: LAPTOP SCREENS (FROSTED) */}
-        <aside className="hidden md:block col-span-1 bg-white/10 backdrop-blur-xl rounded-3xl border border-white/10 p-5 shadow-xl sticky top-22 space-y-6">
-          <div className="space-y-1.5">
-            <span className="text-[10px] uppercase font-black text-teal-400 tracking-wider">Mula Kembara</span>
-            <p className="text-xs text-slate-300 leading-tight">Ketik menu di bawah untuk membuka lembaran interaktif yang dihajati.</p>
-          </div>
-
+        <aside className="hidden md:block col-span-1 bg-[#131a2c]/95 border border-white/10 p-5 rounded-3xl shadow-xl md:sticky md:top-24 md:h-[calc(100vh-8rem)] overflow-y-auto space-y-6 transform-gpu backface-hidden">
           <div className="space-y-2">
             {menuItems.map((item) => {
               const isActive = activeTab === item.id;
@@ -231,7 +266,7 @@ export default function App() {
                 <button
                   key={item.id}
                   onClick={() => setActiveTab(item.id)}
-                  className={`w-full group px-3.5 py-3 rounded-2xl text-left transition-all flex items-center gap-3 relative cursor-pointer font-sans outline-none ${
+                  className={`w-full group px-3.5 py-3 rounded-2xl text-left transition-colors flex items-center gap-3 relative cursor-pointer font-sans outline-none ${
                     isActive
                       ? 'bg-white/20 text-white font-bold border border-white/15 shadow-lg shadow-teal-500/5'
                       : 'bg-white/5 text-slate-300 hover:text-white hover:bg-white/10 border border-transparent'
@@ -241,7 +276,7 @@ export default function App() {
                     <item.icon className="w-4 h-4" />
                   </div>
                   <div className="flex-1 min-w-0">
-                    <span className="text-xs font-bold leading-tight truncate">{item.label}</span>
+                    <span className="text-sm font-bold leading-tight truncate">{item.label}</span>
                   </div>
                   
                   {/* Accent tag arrow */}
@@ -253,8 +288,8 @@ export default function App() {
 
           {/* Footer mini copyrights */}
           <div className="pt-4 border-t border-white/10 flex flex-col gap-1 text-[10px] text-slate-400">
-            <span className="font-bold text-slate-300">Minda Ulum Al-Quran v2.2</span>
-            <span>Estetika Frosted Glass untuk kegembiraan belajar ✨</span>
+            <span className="font-bold text-slate-300 text-[15px]">PQS Genius v2.2</span>
+            <span className="text-white">Frosted Glass aesthetic for the joy of learning ✨</span>
           </div>
         </aside>
 
@@ -277,14 +312,14 @@ export default function App() {
                 animate={{ x: 0 }}
                 exit={{ x: '-100%' }}
                 transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                className="fixed top-0 bottom-0 left-0 w-72 bg-[#1e293b]/90 backdrop-blur-2xl border-r border-white/10 p-5 z-55 flex flex-col justify-between shadow-2xl md:hidden text-white"
+                className="fixed top-0 bottom-0 left-0 w-72 bg-[#1e293b]/90 backdrop-blur-2xl border-r border-white/10 p-5 z-[55] flex flex-col justify-between shadow-2xl md:hidden text-white"
               >
                 <div className="space-y-6">
                   {/* Title of Mobile Drawer */}
                   <div className="flex items-center justify-between">
                     <div className="flex items-center gap-3">
                       <div className="w-8 h-8 rounded-lg bg-gradient-to-tr from-teal-400 to-purple-500 text-white flex items-center justify-center font-bold text-xs">UQ</div>
-                      <span className="text-sm font-extrabold font-display">Minda Ulum</span>
+                      <span className="text-sm font-extrabold font-display">PQS Genius</span>
                     </div>
                     <button 
                       onClick={() => setIsMobileMenuOpen(false)}
@@ -294,12 +329,11 @@ export default function App() {
                     </button>
                   </div>
 
-                  {/* XP display */}
+                  {/* Progress display */}
                   <div className="bg-white/10 border border-white/10 p-3 rounded-xl flex items-center justify-between text-xs">
                     <span className="font-bold text-amber-300 flex items-center gap-1">
-                      👑 Tahap {progress.level}
+                      👑 Level {progress.level}
                     </span>
-                    <span className="font-mono font-bold text-teal-300">{progress.xp} XP</span>
                   </div>
 
                   {/* List of Mobile items */}
@@ -332,7 +366,7 @@ export default function App() {
                 </div>
 
                 <div className="text-[10px] text-slate-400 border-t border-white/10 pt-3">
-                  Ulum Al-Quran Sekolah Menengah
+                  High School Ulum Al-Quran
                 </div>
               </motion.div>
             </>
@@ -344,9 +378,9 @@ export default function App() {
           <AnimatePresence mode="wait">
             <motion.div
               key={activeTab}
-              initial={{ opacity: 0, scale: 0.99, y: 5 }}
-              animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.99, y: -5 }}
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
               transition={{ duration: 0.15 }}
               className="w-full focus:outline-none"
             >
@@ -363,23 +397,8 @@ export default function App() {
                   onUpdateProgress={handleUpdateProgress}
                 />
               )}
-              {activeTab === 'kuiz' && (
-                <QuizTab 
-                  progress={progress} 
-                  onUpdateProgress={handleUpdateProgress}
-                />
-              )}
-              {activeTab === 'nota' && (
-                <NotesTab 
-                  progress={progress} 
-                  onUpdateProgress={handleUpdateProgress}
-                />
-              )}
-              {activeTab === 'progress' && (
-                <ProgressTab 
-                  progress={progress} 
-                  onResetProgress={handleResetProgress}
-                />
+              {activeTab === 'leaderboard' && (
+                <LeaderboardView />
               )}
               {activeTab === 'profile' && (
                 <ProfileTab 

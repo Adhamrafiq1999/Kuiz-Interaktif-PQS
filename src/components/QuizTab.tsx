@@ -1,9 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { motion, AnimatePresence } from 'motion/react';
-import { Trophy, HelpCircle, Check, X, RefreshCw, Award, ArrowRight, Zap, Play } from 'lucide-react';
-import { getStoredQuiz } from '../lib/storage';
+import { Trophy, HelpCircle, Check, X, RefreshCw, Award, ArrowRight, Zap, Play, Clock, Lock } from 'lucide-react';
+import { getStoredQuiz, addActivityLog, getStoredQuizTimerLimit, getStoredQuizSingleAttempt } from '../lib/storage';
 import { ULUM_CATEGORIES } from '../data';
 import { UserProgress } from '../types';
+import AdventureQuizGame from './AdventureQuizGame';
 
 interface QuizTabProps {
   progress: UserProgress;
@@ -17,9 +19,12 @@ export default function QuizTab({ progress, onUpdateProgress }: QuizTabProps) {
   const [hasSubmitted, setHasSubmitted] = useState(false);
   const [score, setScore] = useState(0);
   const [quizFinished, setQuizFinished] = useState(false);
-  const [sessionXP, setSessionXP] = useState(0);
+  const quizSingleAttempt = getStoredQuizSingleAttempt();
 
-  // Filter questions based on chosen category
+  // Countdown timer parameters
+  const [quizTimerLimit, setQuizTimerLimit] = useState(() => getStoredQuizTimerLimit());
+
+  // Sync / set timer values when active question updates
   const QUIZ_QUESTIONS = getStoredQuiz();
   const filteredQuestions = QUIZ_QUESTIONS.filter(
     q => selectedCategory === 'all' || q.category === selectedCategory
@@ -27,14 +32,37 @@ export default function QuizTab({ progress, onUpdateProgress }: QuizTabProps) {
 
   const currentQuestion = filteredQuestions[currentQuestionIndex] || null;
 
+  // Initialize and Reset timer based on current question
+  useEffect(() => {
+    if (selectedCategory && currentQuestion) {
+      const resolvedLimit = currentQuestion.timerLimit || getStoredQuizTimerLimit();
+      setQuizTimerLimit(resolvedLimit);
+    }
+  }, [selectedCategory, currentQuestionIndex, currentQuestion?.id]);
+
   const handleStartQuiz = (catId: string) => {
+    const QUIZ_QUESTIONS_TEMP = getStoredQuiz();
+    const tempFiltered = QUIZ_QUESTIONS_TEMP.filter(
+      q => catId === 'all' || q.category === catId
+    );
+    const firstQ = tempFiltered[0] || null;
+    const initialLimit = firstQ?.timerLimit || getStoredQuizTimerLimit();
+
+    setQuizTimerLimit(initialLimit);
     setSelectedCategory(catId);
     setCurrentQuestionIndex(0);
     setSelectedOption(null);
     setHasSubmitted(false);
     setScore(0);
     setQuizFinished(false);
-    setSessionXP(0);
+  };
+
+  const handleGameAnswerSelected = (selectedIdx: number, timeLeftRemaining: number) => {
+    setSelectedOption(selectedIdx);
+    setHasSubmitted(true);
+    if (selectedIdx === currentQuestion.correctAnswer) {
+      setScore(prev => prev + 1);
+    }
   };
 
   const handleOptionClick = (idx: number) => {
@@ -50,7 +78,6 @@ export default function QuizTab({ progress, onUpdateProgress }: QuizTabProps) {
 
     if (isCorrect) {
       setScore(prev => prev + 1);
-      setSessionXP(prev => prev + 30); // 30 XP per correct answer
     }
   };
 
@@ -60,6 +87,9 @@ export default function QuizTab({ progress, onUpdateProgress }: QuizTabProps) {
     if (isLastQuestion) {
       handleFinishQuiz();
     } else {
+      const nextQ = filteredQuestions[currentQuestionIndex + 1] || null;
+      const nextLimit = nextQ?.timerLimit || getStoredQuizTimerLimit();
+      setQuizTimerLimit(nextLimit);
       setCurrentQuestionIndex(prev => prev + 1);
       setSelectedOption(null);
       setHasSubmitted(false);
@@ -72,6 +102,8 @@ export default function QuizTab({ progress, onUpdateProgress }: QuizTabProps) {
     const finalScorePercent = (score / filteredQuestions.length) * 100;
     const isPerfect = score === filteredQuestions.length && filteredQuestions.length > 0;
 
+    addActivityLog(progress.name || 'Student', `Menjawab kuiz`, 'quiz');
+
     onUpdateProgress(prev => {
       const updatedScores = { ...prev.quizScores };
       
@@ -81,15 +113,12 @@ export default function QuizTab({ progress, onUpdateProgress }: QuizTabProps) {
         updatedScores[currentCat] = finalScorePercent;
       }
 
-      // Add total points/XP
-      let nextXp = prev.xp + sessionXP;
       let nextLevel = prev.level;
       let nextBadges = [...prev.unlockedBadges];
+      let nextLocked = [...(prev.lockedQuizzes || [])];
 
-      // Level check
-      while (nextXp >= nextLevel * 100) {
-        nextXp -= nextLevel * 100;
-        nextLevel += 1;
+      if (quizSingleAttempt && !nextLocked.includes(currentCat)) {
+        nextLocked.push(currentCat);
       }
 
       // BADGE UNLOCK: "Jaguh Ulum" (b3) for 100% score
@@ -100,9 +129,9 @@ export default function QuizTab({ progress, onUpdateProgress }: QuizTabProps) {
       return {
         ...prev,
         quizScores: updatedScores,
-        xp: nextXp,
         level: nextLevel,
-        unlockedBadges: nextBadges
+        unlockedBadges: nextBadges,
+        lockedQuizzes: nextLocked
       };
     });
   };
@@ -114,7 +143,7 @@ export default function QuizTab({ progress, onUpdateProgress }: QuizTabProps) {
         <div>
           <h1 className="text-2xl font-black text-white font-display flex items-center gap-2">
             <Trophy className="w-6 h-6 text-amber-400 fill-amber-400/50 animate-bounce" />
-            Kuiz Interaktif Ulum Al-Quran
+            Kuiz Interaktif PQS Genius
           </h1>
           <p className="text-xs text-slate-350 mt-1">
             Jawab soalan di bawah untuk membuktikan kefahaman mendalam anda mengenai kategori berkaitan.
@@ -132,49 +161,66 @@ export default function QuizTab({ progress, onUpdateProgress }: QuizTabProps) {
             <div className="max-w-md mx-auto space-y-2">
               <h2 className="text-lg font-bold text-white font-display">Pilih Kategori Kuiz</h2>
               <p className="text-xs text-slate-300 leading-relaxed">
-                Setiap jawapan yang betul memberikan anda ganjaran <strong className="text-teal-400">+30 XP</strong>. Cabar diri anda untuk skor sempurna demi mengunci Lencana Trophy khas!
+                Cabar diri anda untuk skor sempurna demi mengunci Lencana Trophy khas!
               </p>
             </div>
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            <motion.button
-              whileHover={{ y: -3 }}
-              onClick={() => handleStartQuiz('all')}
-              className="p-5 rounded-3xl border bg-white/5 hover:bg-white/10 border-white/15 text-left cursor-pointer flex flex-col justify-between min-h-[140px] text-white shadow-xl transition-all"
-            >
-              <div className="w-10 h-10 rounded-xl bg-teal-400/10 border border-teal-500/25 flex items-center justify-center text-teal-300 mb-3 font-bold">
-                <Trophy className="w-5 h-5 text-teal-400" />
-              </div>
-              <div>
-                <b className="block text-sm text-white font-bold">Semua Campuran</b>
-                <span className="text-[10px] text-slate-400 mt-1 block">Gabungan istilah rawak ({QUIZ_QUESTIONS.length} Soalan)</span>
-              </div>
-            </motion.button>
+            {/* Mixed All Quiz */}
+            {(() => {
+              const isLocked = quizSingleAttempt && (progress.lockedQuizzes || []).includes('all');
+              return (
+                <motion.button
+                  whileHover={!isLocked ? { y: -3 } : undefined}
+                  onClick={() => !isLocked && handleStartQuiz('all')}
+                  className={`p-5 rounded-3xl border text-left flex flex-col justify-between min-h-[140px] text-white shadow-xl transition-all ${
+                    isLocked ? 'bg-white/5 border-white/5 opacity-60 cursor-not-allowed' : 'bg-white/5 hover:bg-white/10 border-white/15 cursor-pointer'
+                  }`}
+                >
+                  <div className="w-10 h-10 rounded-xl bg-teal-400/10 border border-teal-500/25 flex items-center justify-center text-teal-300 mb-3 font-bold">
+                    {isLocked ? <Lock className="w-5 h-5 text-slate-500" /> : <Trophy className="w-5 h-5 text-teal-400" />}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2">
+                       <b className="block text-sm text-white font-bold">Semua Campuran</b>
+                       {isLocked && <span className="text-[9px] bg-slate-500/20 text-slate-400 px-1.5 py-0.5 rounded font-black uppercase">Selesai</span>}
+                    </div>
+                    <span className="text-[10px] text-slate-400 mt-1 block">Gabungan istilah rawak ({QUIZ_QUESTIONS.length} Soalan)</span>
+                    {isLocked && <span className="text-[9px] text-teal-400 font-bold mt-1 block italic">Skor: {Math.round((progress.quizScores['all'] || 0))}%</span>}
+                  </div>
+                </motion.button>
+              );
+            })()}
 
             {ULUM_CATEGORIES.filter(c => c.id !== 'all').map((cat) => {
-const QUIZ_QUESTIONS = getStoredQuiz();
               const qCount = QUIZ_QUESTIONS.filter(q => q.category === cat.id).length;
+              const isLocked = quizSingleAttempt && (progress.lockedQuizzes || []).includes(cat.id);
+              
               return (
                 <motion.button
                   key={cat.id}
-                  whileHover={qCount > 0 ? { y: -3 } : undefined}
-                  onClick={() => qCount > 0 ? handleStartQuiz(cat.id) : null}
-                  disabled={qCount === 0}
+                  whileHover={(qCount > 0 && !isLocked) ? { y: -3 } : undefined}
+                  onClick={() => (qCount > 0 && !isLocked) ? handleStartQuiz(cat.id) : null}
+                  disabled={qCount === 0 || isLocked}
                   className={`p-5 rounded-3xl border text-left flex flex-col justify-between min-h-[140px] text-white shadow-xl transition-all ${
-                    qCount > 0 
+                    (qCount > 0 && !isLocked)
                       ? 'bg-white/5 hover:bg-white/10 border-white/15 cursor-pointer' 
-                      : 'bg-white/5 border-white/5 opacity-40 cursor-not-allowed'
+                      : (isLocked ? 'bg-white/5 border-white/5 opacity-60 cursor-not-allowed' : 'bg-white/5 border-white/5 opacity-40 cursor-not-allowed')
                   }`}
                 >
-                  <div className={`w-10 h-10 rounded-xl bg-purple-500/10 border border-purple-500/25 flex items-center justify-center text-purple-300 mb-3`}>
-                    <Play className="w-4 h-4 fill-purple-400/20" />
+                  <div className={`w-10 h-10 rounded-xl ${isLocked ? 'bg-slate-500/10 border border-slate-500/20' : 'bg-purple-500/10 border border-purple-500/25'} flex items-center justify-center text-purple-300 mb-3`}>
+                    {isLocked ? <Lock className="w-4 h-4 text-slate-500" /> : <Play className="w-4 h-4 fill-purple-400/20" />}
                   </div>
                   <div>
-                    <b className="block text-sm text-white font-bold">{cat.name}</b>
+                    <div className="flex items-center gap-2">
+                       <b className="block text-sm text-white font-bold">{cat.name}</b>
+                       {isLocked && <span className="text-[9px] bg-indigo-500/20 text-indigo-400 px-1.5 py-0.5 rounded font-black uppercase">Selesai</span>}
+                    </div>
                     <span className="text-[10px] text-purple-300 mt-1 block">
                       {qCount > 0 ? `${qCount} Soalan Tersedia` : 'Akan Datang'}
                     </span>
+                    {isLocked && <span className="text-[9px] text-teal-400 font-bold mt-1 block italic">Skor: {Math.round((progress.quizScores[cat.id] || 0))}%</span>}
                   </div>
                 </motion.button>
               );
@@ -196,16 +242,12 @@ const QUIZ_QUESTIONS = getStoredQuiz();
             </p>
           </div>
 
-          <div className="grid grid-cols-2 gap-4 max-w-xs mx-auto">
+          <div className="max-w-xs mx-auto">
             <div className="bg-white/5 p-4 rounded-2xl border border-white/5">
               <span className="text-[10px] uppercase font-bold text-slate-400 block leading-none mb-1">Markah Betul</span>
               <strong className="text-2xl text-white font-display">
                 {score} / {filteredQuestions.length}
               </strong>
-            </div>
-            <div className="bg-teal-500/10 p-4 rounded-2xl border border-teal-500/15 text-teal-300">
-              <span className="text-[10px] uppercase font-bold text-teal-400 block leading-none mb-1">Ganjaran XP</span>
-              <strong className="text-2xl font-display font-black">+{sessionXP} XP</strong>
             </div>
           </div>
 
@@ -236,121 +278,28 @@ const QUIZ_QUESTIONS = getStoredQuiz();
           </div>
         </motion.div>
       ) : (
-        /* QUIZ ACTIVE SCREEN */
-        <div className="max-w-xl mx-auto space-y-6">
-          {/* Question Status Counter */}
-          <div className="flex justify-between items-center text-xs text-slate-300 font-medium">
-            <span>Kategori: {ULUM_CATEGORIES.find(c => c.id === selectedCategory)?.name || 'Campuran'}</span>
-            <span>Soalan {currentQuestionIndex + 1} dari {filteredQuestions.length}</span>
-          </div>
-
-          {/* Progress Bar */}
-          <div className="w-full bg-white/10 rounded-full h-2 overflow-hidden shadow-inner">
-            <div
-              className="bg-gradient-to-r from-teal-400 to-cyan-500 h-2 rounded-full transition-all duration-300"
-              style={{ width: `${((currentQuestionIndex + 1) / filteredQuestions.length) * 100}%` }}
-            />
-          </div>
-
-          {currentQuestion && (
-            <motion.div
-              key={currentQuestion.id}
-              initial={{ x: 10, opacity: 0 }}
-              animate={{ x: 0, opacity: 1 }}
-              className="bg-white/10 border border-white/10 p-6 shadow-2xl rounded-3xl space-y-5 text-white backdrop-blur-md"
-            >
-              {/* Question Statement */}
-              <div className="space-y-1.5">
-                <span className="inline-block bg-teal-400/10 border border-teal-500/20 text-teal-300 text-[10px] font-bold px-2.5 py-0.5 rounded-full uppercase">
-                  {currentQuestion.category.toUpperCase()}
-                </span>
-                <h3 className="text-base sm:text-lg font-extrabold text-white leading-normal">
-                  {currentQuestion.question}
-                </h3>
-              </div>
-
-              {/* Options Stack */}
-              <div className="space-y-2.5">
-                {currentQuestion.options.map((opt, idx) => {
-                  const isCurSelected = selectedOption === idx;
-                  const isCorrectAnswer = idx === currentQuestion.correctAnswer;
-                  
-                  // Styles depending on state
-                  let btnStyle = 'border-white/10 bg-white/5 text-slate-200 hover:bg-white/10';
-                  if (isCurSelected && !hasSubmitted) {
-                    btnStyle = 'border-cyan-400 bg-cyan-500/20 text-white font-bold ring-1 ring-cyan-400/30';
-                  } else if (hasSubmitted) {
-                    if (isCorrectAnswer) {
-                      btnStyle = 'border-emerald-500 bg-emerald-500/20 text-emerald-300 font-bold';
-                    } else if (isCurSelected) {
-                      btnStyle = 'border-red-500 bg-red-500/20 text-red-200 font-medium';
-                    } else {
-                      btnStyle = 'border-white/5 bg-white/5 text-slate-500 opacity-45';
-                    }
-                  }
-
-                  return (
-                    <button
-                      key={idx}
-                      onClick={() => handleOptionClick(idx)}
-                      disabled={hasSubmitted}
-                      className={`w-full p-4 rounded-2xl border text-left text-xs sm:text-sm tracking-wide transition-all select-none flex items-center justify-between cursor-pointer ${btnStyle}`}
-                    >
-                      <span>{opt}</span>
-                      {hasSubmitted && isCorrectAnswer && (
-                        <Check className="w-4 h-4 text-emerald-450 shrink-0 font-black" />
-                      )}
-                      {hasSubmitted && isCurSelected && !isCorrectAnswer && (
-                        <X className="w-4 h-4 text-red-400 shrink-0 font-black" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-
-              {/* SUBMIT OR NEXT CONTROLLER */}
-              <div className="pt-2">
-                {!hasSubmitted ? (
-                  <button
-                    onClick={handleSubmitAnswer}
-                    disabled={selectedOption === null}
-                    className={`w-full py-4.5 rounded-2xl font-bold text-xs tracking-wider uppercase transition text-center shadow cursor-pointer ${
-                      selectedOption === null
-                        ? 'bg-white/5 text-slate-500 border border-white/5 cursor-not-allowed'
-                        : 'bg-gradient-to-r from-teal-400 to-cyan-500 text-slate-950 hover:brightness-110 shadow-teal-500/10'
-                    }`}
-                  >
-                    Sahkan Jawapan 🔐
-                  </button>
-                ) : (
-                  <div className="space-y-4">
-                    {/* EXPLANATION / HIKMAH DRAWER */}
-                    <motion.div
-                      initial={{ opacity: 0, height: 0 }}
-                      animate={{ opacity: 1, height: 'auto' }}
-                      className="bg-blue-500/10 text-blue-200 border border-blue-500/20 p-4 rounded-2xl text-xs space-y-1"
-                    >
-                      <strong className="block text-indigo-300 flex items-center gap-1">
-                        <Zap className="w-3.5 h-3.5 fill-indigo-500/20 text-indigo-400" />
-                        Penerangan Sains:
-                      </strong>
-                      <p className="leading-relaxed font-sans">{currentQuestion.explanation}</p>
-                    </motion.div>
-
-                    <button
-                      onClick={handleNextQuestion}
-                      className="w-full py-4 bg-gradient-to-r from-purple-500 to-indigo-600 text-white rounded-2xl font-bold text-xs tracking-wider uppercase flex items-center justify-center gap-1 cursor-pointer transition hover:brightness-110 shadow-lg shadow-purple-500/10"
-                    >
-                      {currentQuestionIndex === filteredQuestions.length - 1
-                        ? 'Lihat Keputusan Akhir 🏁'
-                        : 'Soalan Seterusnya →'}
-                    </button>
-                  </div>
+        createPortal(
+          <div className="fixed inset-0 z-[9999] bg-[#020617] overflow-y-auto px-4 py-4 sm:p-8 font-sans">
+            <div className="min-h-full w-full flex flex-col justify-start md:justify-center items-center py-2 sm:py-6">
+              <div className="w-full max-w-2xl">
+                {currentQuestion && (
+                  <AdventureQuizGame
+                    key={currentQuestion.id}
+                    question={currentQuestion}
+                    currentIndex={currentQuestionIndex}
+                    totalQuestions={filteredQuestions.length}
+                    categoryName={ULUM_CATEGORIES.find(c => c.id === selectedCategory)?.name || 'Campuran'}
+                    onAnswerSelected={handleGameAnswerSelected}
+                    onNextQuestion={handleNextQuestion}
+                    isLastQuestion={currentQuestionIndex === filteredQuestions.length - 1}
+                    timerLimit={quizTimerLimit}
+                  />
                 )}
               </div>
-            </motion.div>
-          )}
-        </div>
+            </div>
+          </div>,
+          document.body
+        )
       )}
     </div>
   );

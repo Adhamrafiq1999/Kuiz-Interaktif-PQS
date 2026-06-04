@@ -1,6 +1,6 @@
 {
-  "name": "Ulum Al-Quran Dashboard",
-  "short_name": "UlumQuran",
+  "name": "PQS Genius",
+  "short_name": "PQSGenius",
   "description": "Dashboard Pembelajaran Ulum Al-Quran",
   "start_url": "/",
   "display": "standalone",
